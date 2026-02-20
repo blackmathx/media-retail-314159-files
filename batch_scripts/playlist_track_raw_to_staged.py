@@ -26,8 +26,8 @@ df_deduped = df_raw \
 # Repartition by number of files you want
 df_deduped = df_deduped.repartition(4)  # will create 4 Parquet files
 
+dbutils.fs.rm(staged_path, True)
 
-# Overwrite staged as Delta
 df_deduped.write \
     .format("delta") \
     .mode("overwrite") \

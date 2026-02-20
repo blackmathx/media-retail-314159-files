@@ -25,9 +25,8 @@ df_deduped = df_raw \
     .filter(col("row_num") == 1) \
     .drop("row_num")
 
+dbutils.fs.rm(staged_path, True)
 
-
-# Overwrite staged
 df_deduped.write \
     .format("delta") \
     .mode("overwrite") \
