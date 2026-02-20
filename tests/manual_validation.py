@@ -15,22 +15,37 @@ invoice_line_df = spark.read.format("delta").load(f"{STAGED_BASE}/invoice_line")
 track_df = spark.read.format("delta").load(f"{STAGED_BASE}/track")
 
 
+# invoice_window = Window.orderBy(col("invoice_id"))
+
+# dim_invoice = (
+#     invoice_df
+#     .join(invoice_line_df())
+#     .dropDuplicates(["invoice_id"])
+#     .withColumn("invoice_sk", row_number().over(invoice_window))
+#     .select(
+#         col("invoice_sk"),
+#         col("invoice_id").alias("invoice_key"),
+#         col("customer_id"),
+#         col("billing_country"),
+#         col("billing_state"),
+#         col("total"),
+#         current_timestamp().alias("created_at")
+#     )
+# )
+
+
 invoice_window = Window.orderBy(col("invoice_id"))
 
 dim_invoice = (
     invoice_df
-    .join(invoice_line_df())
     .dropDuplicates(["invoice_id"])
     .withColumn("invoice_sk", row_number().over(invoice_window))
     .select(
         col("invoice_sk"),
         col("invoice_id").alias("invoice_key"),
-        col("customer_id"),
-        col("billing_country"),
-        col("billing_state"),
-        col("total"),
+        col("invoice_date"),
         current_timestamp().alias("created_at")
     )
 )
 
-dim_track.show(n=20, truncate=False)
+dim_invoice.show(n=20, truncate=False)

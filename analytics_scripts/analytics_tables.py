@@ -7,9 +7,7 @@ spark = SparkSession.builder.appName("media-retail-analytics").getOrCreate()
 STAGED_BASE = "s3://media-retail-314159/staged"
 ANALYTICS_BASE = "s3://media-retail-314159/analytics"
 
-# ----------------------------
 # Read staged tables
-# ----------------------------
 album_df = spark.read.format("delta").load(f"{STAGED_BASE}/album")
 artist_df = spark.read.format("delta").load(f"{STAGED_BASE}/artist")
 customer_df = spark.read.format("delta").load(f"{STAGED_BASE}/customer")
@@ -18,9 +16,7 @@ invoice_df = spark.read.format("delta").load(f"{STAGED_BASE}/invoice")
 invoice_line_df = spark.read.format("delta").load(f"{STAGED_BASE}/invoice_line")
 track_df = spark.read.format("delta").load(f"{STAGED_BASE}/track")
 
-# =====================================================
-# DIMENSIONS WITH INCREASING INT SURROGATE KEYS
-# =====================================================
+
 
 # ----------------------------
 # dim_customer
@@ -39,10 +35,8 @@ dim_customer = (
         current_timestamp().alias("created_at")
     )
 )
+dim_customer.write.format("delta").mode("overwrite").save(f"{ANALYTICS_BASE}/dim_customer")
 
-dim_customer.write.format("delta") \
-    .mode("overwrite") \
-    .save(f"{ANALYTICS_BASE}/dim_customer")
 
 
 # ----------------------------
@@ -61,10 +55,7 @@ dim_genre = (
         current_timestamp().alias("created_at")
     )
 )
-
-dim_genre.write.format("delta") \
-    .mode("overwrite") \
-    .save(f"{ANALYTICS_BASE}/dim_genre")
+dim_genre.write.format("delta").mode("overwrite").save(f"{ANALYTICS_BASE}/dim_genre")
 
 
 # ----------------------------
@@ -95,10 +86,8 @@ dim_track = track_with_album.join(
      current_timestamp().alias("created_at")
  )
 
+dim_track.write.format("delta").mode("overwrite").save(f"{ANALYTICS_BASE}/dim_track")
 
-dim_track.write.format("delta") \
-    .mode("overwrite") \
-    .save(f"{ANALYTICS_BASE}/dim_track")
 
 # ----------------------------
 # dim_invoice
@@ -116,33 +105,50 @@ dim_invoice = (
         current_timestamp().alias("created_at")
     )
 )
+dim_invoice.write.format("delta").mode("overwrite").save(f"{ANALYTICS_BASE}/dim_invoice")
 
-dim_invoice.write.format("delta") \
-    .mode("overwrite") \
-    .save(f"{ANALYTICS_BASE}/dim_invoice")
 
 
 # =====================================================
 # FACT TABLE (using surrogate keys)
 # =====================================================
 
-fact_inventory = (
+fact_window = Window.orderBy(col("invoice_line_id"))
+
+fact_base = (
     invoice_line_df
-    .join(dim_customer, "customer_id", "left")
-    .join(dim_track, "track_id", "left")
+    .join(invoice_df.select("customer_id", "invoice_id"), "invoice_id", "inner")
+    .join(track_df.select("track_id", "genre_id", "album_id"), "track_id", "inner")
+)
+
+fact_sales = (
+    fact_base
+    .join(dim_customer.select("customer_sk", col("customer_key")),
+          fact_base.customer_id == col("customer_key"), "left")
+    .join(dim_invoice.select("invoice_sk", col("invoice_key")),
+          fact_base.invoice_id == col("invoice_key"), "left") 
+    .join(dim_track.select("track_sk", col("track_key")), 
+          fact_base.track_id == col("track_key"), 
+          "left")
+    .join(dim_genre.select("genre_sk", col("genre_key")), 
+          fact_base.genre_id == col("genre_key"), 
+          "left")
+    .withColumn("fact_sales_sk", row_number().over(fact_window))
     .select(
-        col("inventory_line_id").alias("inventory_line_key"),
-        col("customer_sk"),
-        col("track_sk"),
-        col("quantity"),
-        col("unit_price"),
-        (col("quantity") * col("unit_price")).alias("total_amount"),
-        current_timestamp().alias("created_at")
+        "fact_sales_sk",
+        "genre_sk",
+        "customer_sk",
+        "invoice_sk",
+        "track_sk",
+        col("unit_price").alias("price")
     )
 )
 
-fact_inventory.write.format("delta") \
-    .mode("overwrite") \
-    .save(f"{ANALYTICS_BASE}/fact_inventory")
+fact_sales.write.format("delta").mode("overwrite").save(f"{ANALYTICS_BASE}/fact_sales")
+
 
 print("Analytics layer successfully rebuilt.")
+
+
+#
+
